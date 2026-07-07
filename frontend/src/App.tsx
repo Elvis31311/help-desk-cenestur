@@ -11,6 +11,9 @@ interface Ticket {
   fecha?: string;
 }
 
+// 📡 CONFIGURACIÓN DEL PUENTE AUTOMÁTICO HACIA RENDER
+const API_URL = import.meta.env.VITE_API_URL || 'https://help-desk-cenestur.onrender.com';
+
 export default function App() {
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [titulo, setTitulo] = useState('');
@@ -22,11 +25,11 @@ export default function App() {
 
   const obtenerTickets = async () => {
     try {
-      const res = await fetch('http://localhost:5000/tickets');
+      const res = await fetch(`${API_URL}/tickets`);
       const data = await res.json();
       if (Array.isArray(data)) setTickets(data);
     } catch (error) {
-      console.error("Error al conectar con el backend local:", error);
+      console.error("Error al conectar con el backend de producción:", error);
     }
   };
 
@@ -40,7 +43,7 @@ export default function App() {
 
     setCargando(true);
     try {
-      const res = await fetch('http://localhost:5000/tickets', {
+      const res = await fetch(`${API_URL}/tickets`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ titulo, descripcion }),
@@ -187,7 +190,6 @@ export default function App() {
 
         <section className="lg:col-span-8 space-y-5">
           
-          {/* CORREGIDO: Dashboard de Gráficos con espaciado mejorado */}
           {tickets.length > 0 && (
             <div className={`p-6 rounded-xl border flex flex-col md:flex-row gap-12 transition-colors duration-300 ${tema.tarjeta}`}>
               <div className="flex-1 min-w-0 h-64">
