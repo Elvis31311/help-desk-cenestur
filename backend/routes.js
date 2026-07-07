@@ -12,8 +12,9 @@ router.post('/tickets', async (req, res) => {
     const { titulo, descripcion } = req.body;
 
     const apiKey = process.env.GEMINI_API_KEY;
-    // La URL debe incluir /models/gemini-1.5-flash
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    
+    // Cambiamos el modelo final en la URL a gemini-pro (El rey de la compatibilidad en v1beta)
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
 
     const prompt = `Analiza este ticket de soporte técnico y devuelve UNICAMENTE un objeto JSON estrictamente con estas tres propiedades (no agregues texto antes ni después, no uses bloques de código markdown, solo el JSON limpio): 
     {
@@ -26,7 +27,7 @@ router.post('/tickets', async (req, res) => {
     Asunto: ${titulo}
     Descripción: ${descripcion}`;
 
-    // Ejecutamos la petición HTTP nativa con el formato correcto que Google espera
+    // Ejecutamos la petición HTTP nativa
     const responseIA = await fetch(geminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
