@@ -14,7 +14,7 @@ router.post('/tickets', async (req, res) => {
     const apiKey = process.env.GEMINI_API_KEY;
     
     // Cambiamos el modelo final en la URL a gemini-pro (El rey de la compatibilidad en v1beta)
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
     const prompt = `Analiza este ticket de soporte técnico y devuelve UNICAMENTE un objeto JSON estrictamente con estas tres propiedades (no agregues texto antes ni después, no uses bloques de código markdown, solo el JSON limpio): 
     {
