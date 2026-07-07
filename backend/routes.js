@@ -37,16 +37,16 @@ router.post('/tickets', async (req, res) => {
 
     const dataIA = await responseIA.json();
 
+    // 🔍 DEBUG: Esto nos dirá exactamente qué está respondiendo Google
+    console.log("🔍 Respuesta cruda completa de la API de Google:", JSON.stringify(dataIA));
+
     // Verificación de seguridad de la respuesta de Google
-    if (!dataIA.candidates || !dataIA.candidates[0].content.parts[0].text) {
-      throw new Error("La API de Gemini no devolvió una estructura válida. Revisa tu GEMINI_API_KEY.");
+    if (dataIA.error) {
+      throw new Error(`Google API Error: ${dataIA.error.message} (Código: ${dataIA.error.code})`);
     }
 
-    let responseText = dataIA.candidates[0].content.parts[0].text.trim();
-    
-    // LIMPIEZA DE SEGURIDAD: Por si Gemini mete texto formateado tipo ```json ... ```
-    if (responseText.includes("```")) {
-      responseText = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
+    if (!dataIA.candidates || !dataIA.candidates[0].content || !dataIA.candidates[0].content.parts[0].text) {
+      throw new Error("La API de Gemini no devolvió una estructura válida. Revisa tu GEMINI_API_KEY.");
     }
 
     console.log("🤖 Respuesta cruda de Gemini:", responseText);
