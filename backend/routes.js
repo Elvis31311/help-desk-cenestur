@@ -16,8 +16,9 @@ router.post('/tickets', async (req, res) => {
 
     // 📡 CONEXIÓN CON GEMINI USANDO ENDPOINT ESTABLE v1
     const apiKey = process.env.GEMINI_API_KEY;
-    // Usamos el endpoint v1 global con la estructura de contenido nativa
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    
+    // El endpoint estándar universal para las llaves gratuitas de AI Studio
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
     const prompt = `Analiza este ticket de soporte técnico y devuelve UNICAMENTE un objeto JSON estrictamente con estas tres propiedades (no agregues texto antes ni después, no uses bloques de código markdown, solo el JSON limpio): 
     {
