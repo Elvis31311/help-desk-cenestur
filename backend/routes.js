@@ -17,7 +17,7 @@ router.post('/tickets', async (req, res) => {
 
     // 1. Uso del modelo estándar 1.5-flash para asegurar cuota gratuita en servidores
     const model = ai.getGenerativeModel({ 
-      model: "gemini-1.5-flash"
+      model: "gemini-pro"
     });
     
     const prompt = `Analiza este ticket de soporte técnico y devuelve UNICAMENTE un objeto JSON estrictamente con estas tres propiedades (no agregues texto antes ni después, no uses bloques de código markdown, solo el JSON limpio): 
