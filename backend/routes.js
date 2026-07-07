@@ -17,7 +17,7 @@ router.post('/tickets', async (req, res) => {
 
     // 1. Llamada mejorada a Gemini para clasificar y generar sugerencias reales
     const model = ai.getGenerativeModel({ 
-      model: "gemini-2.5-flash",
+      model: "gemini-1.5-flash",
       generationConfig: { responseMimeType: "application/json" } 
     });
     
