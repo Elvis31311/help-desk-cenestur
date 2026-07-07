@@ -1,11 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Ticket = require('./models/Ticket');
-
-// Inicializar Gemini
-const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 router.post('/tickets', async (req, res) => {
   if (mongoose.connection.readyState !== 1) {
@@ -15,11 +11,10 @@ router.post('/tickets', async (req, res) => {
   try {
     const { titulo, descripcion } = req.body;
 
-    // 1. Uso del modelo estándar 1.5-flash para asegurar cuota gratuita en servidores
-    const model = ai.getGenerativeModel({ 
-      model: "models/gemini-1.5-flash"
-    });
-    
+    // 📡 SOLUCIÓN MAESTRA: Conexión directa por HTTP Bypass sin usar el SDK roto de Google
+    const apiKey = process.env.GEMINI_API_KEY;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
     const prompt = `Analiza este ticket de soporte técnico y devuelve UNICAMENTE un objeto JSON estrictamente con estas tres propiedades (no agregues texto antes ni después, no uses bloques de código markdown, solo el JSON limpio): 
     {
       "prioridad": "Baja" o "Media" o "Alta", 
@@ -31,8 +26,23 @@ router.post('/tickets', async (req, res) => {
     Asunto: ${titulo}
     Descripción: ${descripcion}`;
 
-    const result = await model.generateContent(prompt);
-    let responseText = result.response.text().trim();
+    // Ejecutamos la petición HTTP nativa
+    const responseIA = await fetch(geminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }]
+      })
+    });
+
+    const dataIA = await responseIA.json();
+
+    // Verificación de seguridad de la respuesta de Google
+    if (!dataIA.candidates || !dataIA.candidates[0].content.parts[0].text) {
+      throw new Error("La API de Gemini no devolvió una estructura válida. Revisa tu GEMINI_API_KEY.");
+    }
+
+    let responseText = dataIA.candidates[0].content.parts[0].text.trim();
     
     // LIMPIEZA DE SEGURIDAD: Por si Gemini mete texto formateado tipo ```json ... ```
     if (responseText.includes("```")) {
@@ -41,13 +51,13 @@ router.post('/tickets', async (req, res) => {
 
     console.log("🤖 Respuesta cruda de Gemini:", responseText);
 
-    let dataIA;
+    let resultadoJSON;
     try {
-      dataIA = JSON.parse(responseText);
+      resultadoJSON = JSON.parse(responseText);
     } catch (parseError) {
       console.error("❌ Error al parsear el JSON de Gemini. Respuesta recibida:", responseText);
       // Valores por defecto por si la IA responde mal para que el sistema NO se caiga
-      dataIA = {
+      resultadoJSON = {
         prioridad: 'Media',
         categoria: 'Software',
         sugerencia: 'Un técnico revisará tu caso pronto de forma manual.'
@@ -58,9 +68,9 @@ router.post('/tickets', async (req, res) => {
     const nuevoTicket = new Ticket({
       titulo,
       descripcion,
-      prioridad: dataIA.prioridad || 'Media',
-      categoria: dataIA.categoria || 'Software',
-      respuesta_ia: dataIA.sugerencia || 'Un técnico revisará tu caso pronto.'
+      prioridad: resultadoJSON.prioridad || 'Media',
+      categoria: resultadoJSON.categoria || 'Software',
+      respuesta_ia: resultadoJSON.sugerencia || 'Un técnico revisará tu caso pronto.'
     });
 
     await nuevoTicket.save();
