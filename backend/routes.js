@@ -8,94 +8,70 @@ router.post('/tickets', async (req, res) => {
     return res.status(500).json({ error: "La base de datos de MongoDB no está conectada aún." });
   }
 
-  // Definimos variables globales del ticket para usarlas en todo el proceso
-  let prioridad = "Media";
-  let categoria = "Software";
-  let sugerencia = "Un técnico de Cenestur revisará tu caso pronto.";
-
   try {
     const { titulo, descripcion } = req.body;
     if (!titulo || !descripcion) {
       return res.status(400).json({ error: "Faltan campos obligatorios." });
     }
 
-    // 📡 1. INTENTO DE CONEXIÓN CON IA REAL (CÓDIGO EXIGIDO PARA LA ENTREGA)
-    try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const apiKey = process.env.GEMINI_API_KEY;
+    
+    // 📡 MODELO ACTUALIZADO: Usamos gemini-2.0-flash para total compatibilidad
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
-      const prompt = `Analiza este ticket de soporte técnico y devuelve UNICAMENTE un objeto JSON estrictamente con estas tres propiedades (no uses bloques de código markdown, solo el JSON limpio): 
-      {
-        "prioridad": "Baja" o "Media" o "Alta", 
-        "categoria": "Hardware" o "Software" o "Redes" o "Accesos",
-        "sugerencia": "una respuesta técnica breve y cordial con 2 pasos claros"
-      }
-      Asunto: ${titulo} | Descripción: ${descripcion}`;
-
-      const responseIA = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-        signal: AbortSignal.timeout(4000) // Si Google tarda más de 4 segundos, pasa al respaldo
-      });
-
-      const dataIA = await responseIA.json();
-
-      if (dataIA.error) {
-        throw new Error(`Google API Error: ${dataIA.error.message}`);
-      }
-
-      let responseText = dataIA.candidates[0].content.parts[0].text.trim();
-      if (responseText.includes("```")) {
-        responseText = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
-      }
-
-      const resultadoJSON = JSON.parse(responseText);
-      prioridad = resultadoJSON.prioridad || "Media";
-      categoria = resultadoJSON.categoria || "Software";
-      sugerencia = resultadoJSON.sugerencia || "Revisión en proceso.";
-      console.log("🤖 IA Real (Gemini) procesó con éxito el ticket.");
-
-    } catch (apiError) {
-      // 🛡️ SISTEMA DE RESPALDO INTELIGENTE (Se activa si Google da 404, falla la red o el token)
-      console.warn("⚠️ Gemini falló o dio 404. Activando Motor de Respaldo Híbrido...");
-      
-      const textoAnalizar = `${titulo} ${descripcion}`.toLowerCase();
-
-      // Clasificación por palabras clave
-      if (textoAnalizar.includes("internet") || textoAnalizar.includes("red") || textoAnalizar.includes("wifi") || textoAnalizar.includes("router") || textoAnalizar.includes("switch")) {
-        categoria = "Redes";
-      } else if (textoAnalizar.includes("pantalla") || textoAnalizar.includes("proyector") || textoAnalizar.includes("mouse") || textoAnalizar.includes("teclado") || textoAnalizar.includes("hardware") || textoAnalizar.includes("computadora")) {
-        categoria = "Hardware";
-      } else if (textoAnalizar.includes("contraseña") || textoAnalizar.includes("usuario") || textoAnalizar.includes("login") || textoAnalizar.includes("acceso") || textoAnalizar.includes("bloqueado")) {
-        categoria = "Accesos";
-      }
-
-      // Asignación de Prioridades y Respuestas Técnicas Asistidas
-      if (textoAnalizar.includes("caida") || textoAnalizar.includes("urgente") || textoAnalizar.includes("no funciona") || textoAnalizar.includes("error 403") || textoAnalizar.includes("bloqueado")) {
-        prioridad = "Alta";
-        sugerencia = "[Soporte Automatizado] Se detectó un bloqueo crítico. Por favor, borre las cookies de su navegador, valide su dirección IP institucional o solicite un reseteo de credenciales con el administrador del laboratorio.";
-      } else if (textoAnalizar.includes("lento") || textoAnalizar.includes("opaco") || textoAnalizar.includes("mantenimiento")) {
-        prioridad = "Baja";
-        sugerencia = "[Soporte Automatizado] Ticket agendado para mantenimiento preventivo en las próximas 48 horas. No interrumpe las actividades académicas actuales.";
-      } else {
-        prioridad = "Media";
-        sugerencia = "[Soporte Automatizado] Reporte recibido correctamente. Le sugerimos reiniciar el equipo/aplicativo afectado y verificar si el inconveniente persiste antes de la asignación del técnico.";
-      }
+    const prompt = `Actúa como un ingeniero de soporte técnico de TI para el Instituto Cenestur.
+    Analiza con total atención el siguiente ticket y responde EXCLUSIVAMENTE con un objeto JSON plano. 
+    No incluyas introducciones, no uses bloques de código markdown como \`\`\`json, solo devuelve el objeto JSON limpio con esta estructura exacta:
+    {
+      "prioridad": "Baja" o "Media" o "Alta",
+      "categoria": "Hardware" o "Software" o "Redes" o "Accesos",
+      "sugerencia": "Una respuesta técnica, analítica, profesional y cordial adaptada exactamente al problema del usuario con 2 o 3 pasos claros."
     }
 
-    // 2. GUARDAR EL TICKET EN MONGODB (Garantiza los datos para los gráficos)
+    Ticket a analizar:
+    Asunto: ${titulo}
+    Descripción: ${descripcion}`;
+
+    // Petición directa a la Inteligencia Artificial
+    const responseIA = await fetch(geminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }]
+      })
+    });
+
+    const dataIA = await responseIA.json();
+
+    if (dataIA.error) {
+      throw new Error(`Google API Error: ${dataIA.error.message} (Código: ${dataIA.error.code})`);
+    }
+
+    // Extraemos el texto de la IA
+    let responseText = dataIA.candidates[0].content.parts[0].text.trim();
+    
+    // Limpieza profunda por si la IA devuelve bloques markdown
+    if (responseText.includes("```")) {
+      responseText = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
+    }
+
+    console.log("🤖 ¡IA REAL RESPONDIENDO!:", responseText);
+
+    // Parseamos la respuesta dinámica de la IA
+    const resultadoIA = JSON.parse(responseText);
+
+    // 2. Guardamos en MongoDB el análisis REAL de la IA
     const nuevoTicket = new Ticket({
       titulo,
       descripcion,
-      prioridad,
-      categoria,
-      respuesta_ia: sugerencia
+      prioridad: resultadoIA.prioridad || 'Media',
+      categoria: resultadoIA.categoria || 'Software',
+      respuesta_ia: resultadoIA.sugerencia || 'Procesando soporte...'
     });
 
     await nuevoTicket.save();
 
-    // 3. ENVIAR A TRELLO DE MANERA AUTOMÁTICA
+    // 3. ENVIAR A TRELLO
     try {
       let idListDestino = process.env.TRELLO_LIST_MEDIA;
       if (nuevoTicket.prioridad === 'Baja') idListDestino = process.env.TRELLO_LIST_BAJA;
@@ -106,25 +82,29 @@ router.post('/tickets', async (req, res) => {
         key: process.env.TRELLO_KEY || '',
         token: process.env.TRELLO_TOKEN || '',
         name: `[${nuevoTicket.categoria}] ${nuevoTicket.titulo}`,
-        desc: `Descripción del usuario:\n${nuevoTicket.descripcion}\n\n🤖 Diagnóstico Asistido:\n${nuevoTicket.respuesta_ia}`
+        desc: `Descripción del usuario:\n${nuevoTicket.descripcion}\n\n🤖 Diagnóstico de Gemini 2.0:\n${nuevoTicket.respuesta_ia}`
       });
 
       await fetch(`https://api.trello.com/1/cards?${params.toString()}`, { method: 'POST' });
-      console.log(`📋 ✅ ¡TARJETA CREADA EN TRELLO!`);
+      console.log(`📋 ✅ ¡TARJETA EN TRELLO CON IA REAL!`);
     } catch (trelloError) {
-      console.error('⚠️ Error en Trello:', trelloError.message);
+      console.error('⚠️ Trello Error:', trelloError.message);
     }
     
-    // Devolvemos respuesta exitosa (Status 201) al Frontend de Vercel
+    // Enviamos el ticket real al frontend
     res.status(201).json(nuevoTicket);
 
   } catch (error) {
-    console.error("❌ Error general crítico en la ruta /tickets:", error);
-    res.status(500).json({ error: "Error interno al procesar el ticket." });
+    console.error("❌ Error crítico en la llamada de IA:", error);
+    // Si todo lo demás falla, devolvemos un estado controlado para corregir el token
+    res.status(500).json({ 
+      error: "Error de comunicación con la IA real.", 
+      detalles: error.message 
+    });
   }
 });
 
-// Ruta para el historial de los gráficos del Frontend
+// Historial de tickets
 router.get('/tickets', async (req, res) => {
   try {
     const tickets = await Ticket.find().sort({ createdAt: -1 });
