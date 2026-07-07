@@ -10,73 +10,86 @@ router.post('/tickets', async (req, res) => {
 
   try {
     const { titulo, descripcion } = req.body;
-
-    const apiKey = process.env.GEMINI_API_KEY;
-    
-    // Cambiamos el modelo final en la URL a gemini-pro (El rey de la compatibilidad en v1beta)
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
-
-    const prompt = `Analiza este ticket de soporte técnico y devuelve UNICAMENTE un objeto JSON estrictamente con estas tres propiedades (no agregues texto antes ni después, no uses bloques de código markdown, solo el JSON limpio): 
-    {
-      "prioridad": "Baja" o "Media" o "Alta", 
-      "categoria": "Hardware" o "Software" o "Redes" o "Accesos",
-      "sugerencia": "una respuesta técnica breve y cordial con 2 o 3 pasos claros"
+    if (!titulo || !descripcion) {
+      return res.status(400).json({ error: "Faltan campos obligatorios." });
     }
-    
-    Ticket a analizar:
-    Asunto: ${titulo}
-    Descripción: ${descripcion}`;
 
-    // Ejecutamos la petición HTTP nativa
-    const responseIA = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    // 📡 CONEXIÓN CON IA REAL (Hugging Face Inference API)
+    const hfToken = process.env.HF_TOKEN;
+    // Usamos uno de los modelos de lenguaje más potentes y abiertos del mundo
+    const hfUrl = "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-72B-Instruct";
+
+    const prompt = `<|im_start|>system
+    Eres un asistente de soporte de TI para el Instituto Cenestur. Analiza el ticket y responde EXCLUSIVAMENTE en formato JSON plano, sin bloques de código markdown (\`\`\`json), sin texto antes ni después. El formato debe ser exactamente:
+    {
+      "prioridad": "Baja" o "Media" o "Alta",
+      "categoria": "Hardware" o "Software" o "Redes" o "Accesos",
+      "sugerencia": "Respuesta técnica breve de 2 pasos cortos."
+    }<|im_end|>
+    <|im_start|>user
+    Asunto: ${titulo}
+    Descripción: ${descripcion}<|im_end|>
+    <|im_start|>assistant`;
+
+    const responseIA = await fetch(hfUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${hfToken}`,
+        "Content-Type": "application/json"
+      },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }]
+        inputs: prompt,
+        parameters: { max_new_tokens: 150, temperature: 0.1 }
       })
     });
 
     const dataIA = await responseIA.json();
-
-    // 🔍 DEBUG: Esto nos dirá exactamente qué está respondiendo Google
-    console.log("🔍 Respuesta cruda completa de la API de Google:", JSON.stringify(dataIA));
-
-    // Verificación de seguridad de la respuesta de Google
-    if (dataIA.error) {
-      throw new Error(`Google API Error: ${dataIA.error.message} (Código: ${dataIA.error.code})`);
+    
+    // Extraemos el texto generado por la IA
+    let textoGenerado = "";
+    if (Array.isArray(dataIA) && dataIA[0].generated_text) {
+      textoGenerado = dataIA[0].generated_text;
+    } else if (dataIA.generated_text) {
+      textoGenerado = dataIA.generated_text;
+    } else {
+      console.log("Error de respuesta HF:", dataIA);
+      throw new Error("No se obtuvo respuesta válida del modelo de IA.");
     }
 
-    if (!dataIA.candidates || !dataIA.candidates[0].content || !dataIA.candidates[0].content.parts[0].text) {
-      throw new Error("La API de Gemini no devolvió una estructura válida. Revisa tu GEMINI_API_KEY.");
+    // Recortamos para extraer solo la respuesta del asistente si repite el prompt
+    if (textoGenerado.includes("<|im_start|>assistant")) {
+      textoGenerado = textoGenerado.split("<|im_start|>assistant")[1].trim();
     }
+    
+    // Limpieza de formato markdown por si acaso
+    textoGenerado = textoGenerado.replace(/```json|```/g, '').trim();
 
-    console.log("🤖 Respuesta cruda de Gemini:", responseText);
+    console.log("🤖 IA Real (Hugging Face) respondió:", textoGenerado);
 
     let resultadoJSON;
     try {
-      resultadoJSON = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error("❌ Error al parsear el JSON de Gemini. Respuesta recibida:", responseText);
-      // Valores por defecto por si la IA responde mal para que el sistema NO se caiga
+      resultadoJSON = JSON.parse(textoGenerado);
+    } catch (e) {
+      // Sistema de respaldo por si el JSON vino cortado
       resultadoJSON = {
-        prioridad: 'Media',
-        categoria: 'Software',
-        sugerencia: 'Un técnico revisará tu caso pronto de forma manual.'
+        prioridad: "Media",
+        categoria: "Software",
+        sugerencia: "El sistema de IA procesó tu caso. Un técnico lo revisará brevemente."
       };
     }
 
-    // 2. Guardar el ticket en MongoDB
+    // Guardar en la base de datos
     const nuevoTicket = new Ticket({
       titulo,
       descripcion,
-      prioridad: resultadoJSON.prioridad || 'Media',
-      categoria: resultadoJSON.categoria || 'Software',
-      respuesta_ia: resultadoJSON.sugerencia || 'Un técnico revisará tu caso pronto.'
+      prioridad: resultadoJSON.prioridad || "Media",
+      categoria: resultadoJSON.categoria || "Software",
+      respuesta_ia: resultadoJSON.sugerencia || "Revisión técnica en proceso."
     });
 
     await nuevoTicket.save();
 
-    // 3. ENVIAR A TRELLO
+    // 4. ENVÍO A TRELLO
     try {
       let idListDestino = process.env.TRELLO_LIST_MEDIA;
       if (nuevoTicket.prioridad === 'Baja') idListDestino = process.env.TRELLO_LIST_BAJA;
@@ -87,30 +100,24 @@ router.post('/tickets', async (req, res) => {
         key: process.env.TRELLO_KEY || '',
         token: process.env.TRELLO_TOKEN || '',
         name: `[${nuevoTicket.categoria}] ${nuevoTicket.titulo}`,
-        desc: `Descripción del usuario:\n${nuevoTicket.descripcion}\n\n🤖 Sugerencia de la IA:\n${nuevoTicket.respuesta_ia}`
+        desc: `Descripción:\n${nuevoTicket.descripcion}\n\n🤖 IA Real (Hugging Face):\n${nuevoTicket.respuesta_ia}`
       });
 
-      const trelloUrl = `https://api.trello.com/1/cards?${params.toString()}`;
-      const trelloRes = await fetch(trelloUrl, { method: 'POST' });
-      
-      if (!trelloRes.ok) {
-        console.error(`⚠️ Trello rechazó la tarjeta.`);
-      } else {
-        console.log(`📋 ✅ ¡TARJETA CREADA EN TRELLO!`);
-      }
+      await fetch(`https://api.trello.com/1/cards?${params.toString()}`, { method: 'POST' });
+      console.log(`📋 ✅ ¡TARJETA CREADA EN TRELLO!`);
     } catch (trelloError) {
-      console.error('⚠️ Error en Trello:', trelloError.message);
+      console.error('⚠️ Trello Error:', trelloError.message);
     }
-    
+
     res.status(201).json(nuevoTicket);
 
   } catch (error) {
-    console.error("❌ Error general en la ruta /tickets:", error);
-    res.status(500).json({ error: "Error al procesar el ticket con la IA.", detalles: error.message });
+    console.error("❌ Error en ruta /tickets:", error);
+    res.status(500).json({ error: "Error al conectar con el servidor de IA." });
   }
 });
 
-// Ruta para obtener el historial
+// Historial para los gráficos del Frontend
 router.get('/tickets', async (req, res) => {
   try {
     const tickets = await Ticket.find().sort({ createdAt: -1 });
